@@ -14,9 +14,13 @@ key_number_to_hertz :: proc(num: int) -> f32 {
     return 440.0 * math.pow(2.0, (cast(f32)num - 57.0) / 12.0)
 }
 
+osc :: proc() -> f32 {
+    return 0.0
+}
+
 Note :: struct {
     active: bool,
-    phase: f32
+    dt: f32
 }
 
 notes: [KEY_MAX-KEY_MIN]Note
@@ -101,17 +105,21 @@ main :: proc() {
 
         if (rl.IsAudioStreamProcessed(audio_stream)) {
             audio_buffer = {}
-            for i in 0..<len(notes) {
-                if !notes[i].active { continue }
-                current_key := cast(int)i + KEY_MIN
-                key_hertz := key_number_to_hertz(current_key)
-                dhertz := (cast(f32)key_hertz / cast(f32)SAMPLE_RATE)
-                for j in 0..<AUDIO_BUFFER_SIZE {
-                    w := 2.0*math.PI*notes[i].phase
-                    audio_buffer[j] += math.sin_f32(w)
-                    notes[i].phase += dhertz
-                    if hertz >= 1.0 { hertz -= 1.0 }
+            for i in 0..<AUDIO_BUFFER_SIZE {
+                sample: f32 = 0.0
+                dt_step := 1.0 / cast(f32)SAMPLE_RATE
+
+                for j in 0..<len(notes) {
+                    n := &notes[j]
+                    if !n.active { continue }
+                    current_key := cast(int)j + KEY_MIN
+                    key_hertz := key_number_to_hertz(current_key)
+                    sample += math.sin_f32(2.0 * math.PI * key_hertz * n.dt)
+                    n.dt += dt_step
                 }
+
+                audio_buffer[i] = sample * 0.3
+
             }
             rl.UpdateAudioStream(audio_stream, raw_data(audio_buffer[:]), AUDIO_BUFFER_SIZE)
         }
