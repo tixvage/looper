@@ -39,7 +39,14 @@ main :: proc() {
         event_buffer: [buffer_size]pm.Event
         pm.Read(stream, raw_data(event_buffer[:]), buffer_size)
 
-        log.infof("%v", event_buffer)
+        for e in event_buffer {
+            if e.timestamp == 0 {
+                continue
+            }
+            status, data1, data2 := pm.MessageStatus(e.message), pm.MessageData1(e.message), pm.MessageData2(e.message)
+            log.infof("status %d | button %d | velocity %d", status, data1, data2)
+        }
+
         time.sleep(30 * time.Millisecond)
     }
 }
