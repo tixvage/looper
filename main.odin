@@ -29,19 +29,15 @@ main :: proc() {
     }
     defer pm.Close(stream)
 
-    event_buffer: [2]pm.Event
-    pm.Read(stream, raw_data(event_buffer[:]), 2)
-
-    log.infof("%v", event_buffer)
-
     for {
         err := pm.Poll(stream)
         if cast(int)err > 2 {
             log.errorf("%s", pm.GetErrorText(err))
             break
         }
-        event_buffer: [2]pm.Event
-        pm.Read(stream, raw_data(event_buffer[:]), 2)
+        buffer_size :: 10
+        event_buffer: [buffer_size]pm.Event
+        pm.Read(stream, raw_data(event_buffer[:]), buffer_size)
 
         log.infof("%v", event_buffer)
         time.sleep(30 * time.Millisecond)
