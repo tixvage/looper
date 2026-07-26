@@ -14,8 +14,30 @@ key_number_to_hertz :: proc(num: int) -> f32 {
     return 440.0 * math.pow(2.0, (cast(f32)num - 57.0) / 12.0)
 }
 
-osc :: proc() -> f32 {
-    return 0.0
+w :: proc(hertz: f32) -> f32 {
+    return math.PI * 2.0 * hertz
+}
+
+Osc_Type :: enum {
+    OSC_SINE = 0,
+    OSC_SQUARE,
+    OSC_TRIANGLE,
+    OSC_SAW_ANA,
+    OSC_SAW_DIG,
+    OSC_NOISE
+}
+
+osc :: proc(hertz: f32, dt: f32, type: Osc_Type) -> f32 {
+    #partial switch type {
+    case .OSC_SINE:
+        return math.sin_f32(w(hertz) * dt)
+    case .OSC_SQUARE:
+        return 1.0 if math.sin_f32(w(hertz) * dt) > 0.0 else -1.0
+    case .OSC_TRIANGLE:
+        return math.asin_f32(math.sin_f32(w(hertz) * dt)) * (2.0 / math.PI)
+    case:
+        return 0.0
+    }
 }
 
 Note :: struct {
@@ -59,7 +81,7 @@ main :: proc() {
     rl.UpdateAudioStream(audio_stream, raw_data(audio_buffer[:]), AUDIO_BUFFER_SIZE)
     rl.PlayAudioStream(audio_stream);
 
-    hertz: f32 = 0.0
+    active_key_count := 0
 
     for {
         err := pm.Poll(stream)
@@ -83,11 +105,13 @@ main :: proc() {
                     log.warnf("invalid key: 0x%X", key)
                 }
                 notes[key - KEY_MIN].active = true
+                active_key_count += 1
             case KEY_RELEASED:
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
                 notes[key - KEY_MIN].active = false
+                active_key_count -= 1
             case PAD_PRESSED:
                 if key < PAD_MIN || key > PAD_MAX {
                     log.warnf("invalid pad: 0x%X", key)
@@ -114,11 +138,12 @@ main :: proc() {
                     if !n.active { continue }
                     current_key := cast(int)j + KEY_MIN
                     key_hertz := key_number_to_hertz(current_key)
-                    sample += math.sin_f32(2.0 * math.PI * key_hertz * n.dt)
+                    sample += osc(key_hertz, n.dt, .OSC_SQUARE)
                     n.dt += dt_step
                 }
-
-                audio_buffer[i] = sample * 0.3
+                if active_key_count > 0 {
+                    audio_buffer[i] = sample * (1.0 / cast(f32)active_key_count)
+                }
 
             }
             rl.UpdateAudioStream(audio_stream, raw_data(audio_buffer[:]), AUDIO_BUFFER_SIZE)
