@@ -23,7 +23,7 @@ main :: proc() {
         log.infof("%v", device_info^)
     }
 
-    stream : pm.Stream = nil
+    stream: pm.Stream = nil
 	if err := pm.OpenInput(&stream, device_id, nil, 0, nil, nil); cast(int)err > 2 {
         log.errorf("%s", pm.GetErrorText(err))
     }
@@ -43,8 +43,30 @@ main :: proc() {
             if e.timestamp == 0 {
                 continue
             }
-            status, data1, data2 := pm.MessageStatus(e.message), pm.MessageData1(e.message), pm.MessageData2(e.message)
-            log.infof("status %d | button %d | velocity %d", status, data1, data2)
+            event, key, velocity := pm.MessageStatus(e.message), pm.MessageData1(e.message), pm.MessageData2(e.message)
+
+            switch event {
+            case KEY_PRESSED:
+                if key < KEY_MIN || key > KEY_MAX {
+                    log.warnf("invalid key: 0x%X", key)
+                }
+            case KEY_RELEASED:
+                if key < KEY_MIN || key > KEY_MAX {
+                    log.warnf("invalid key: 0x%X", key)
+                }
+            case PAD_PRESSED:
+                if key < PAD_MIN || key > PAD_MAX {
+                    log.warnf("invalid pad: 0x%X", key)
+                }
+            case PAD_RELEASED:
+                if key < PAD_MIN || key > PAD_MAX {
+                    log.warnf("invalid pad: 0x%X", key)
+                }
+            case KNOB_MODIFIED:
+                log.warnf("todo: knobs")
+            case:
+                log.warnf("unhandled event: 0x%X", event)
+            }
         }
 
         time.sleep(30 * time.Millisecond)
