@@ -42,6 +42,7 @@ osc :: proc(hertz: f32, dt: f32, type: Osc_Type) -> f32 {
 
 Note :: struct {
     active: bool,
+    velocity: f32,
     dt: f32
 }
 
@@ -81,8 +82,6 @@ main :: proc() {
     rl.UpdateAudioStream(audio_stream, raw_data(audio_buffer[:]), AUDIO_BUFFER_SIZE)
     rl.PlayAudioStream(audio_stream);
 
-    active_key_count := 0
-
     for {
         err := pm.Poll(stream)
         if cast(int)err > 2 {
@@ -104,14 +103,14 @@ main :: proc() {
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
-                notes[key - KEY_MIN].active = true
-                active_key_count += 1
+                index := key - KEY_MIN
+                notes[index].active = true
+                notes[index].velocity = cast(f32)velocity / cast(f32)VELOCITY_MAX
             case KEY_RELEASED:
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
                 notes[key - KEY_MIN].active = false
-                active_key_count -= 1
             case PAD_PRESSED:
                 if key < PAD_MIN || key > PAD_MAX {
                     log.warnf("invalid pad: 0x%X", key)
@@ -129,6 +128,12 @@ main :: proc() {
 
         if (rl.IsAudioStreamProcessed(audio_stream)) {
             audio_buffer = {}
+            total_velocity: f32 = 0.0
+            for i in 0..<len(notes) {
+                if notes[i].active {
+                    total_velocity += notes[i].velocity
+                }
+            }
             for i in 0..<AUDIO_BUFFER_SIZE {
                 sample: f32 = 0.0
                 dt_step := 1.0 / cast(f32)SAMPLE_RATE
@@ -138,11 +143,11 @@ main :: proc() {
                     if !n.active { continue }
                     current_key := cast(int)j + KEY_MIN
                     key_hertz := key_number_to_hertz(current_key)
-                    sample += osc(key_hertz, n.dt, .OSC_SQUARE)
+                    sample += osc(key_hertz, n.dt, .OSC_TRIANGLE) * n.velocity
                     n.dt += dt_step
                 }
-                if active_key_count > 0 {
-                    audio_buffer[i] = sample * (1.0 / cast(f32)active_key_count)
+                if total_velocity > 0 {
+                    audio_buffer[i] = sample * math.min((1.0 / total_velocity), total_velocity)
                 }
 
             }
