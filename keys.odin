@@ -1,9 +1,5 @@
 package main
 
-import "core:c"
-
-Key :: c.int
-
 KEY_PRESSED    :: 0x90
 KEY_RELEASED   :: 0x80
 PAD_PRESSED    :: 0x99

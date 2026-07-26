@@ -10,9 +10,16 @@ AUDIO_BUFFER_SIZE :: 4096
 SAMPLE_RATE :: 44100
 
 // assumed C0 -> 0
-key_number_to_freq :: proc(num: int) -> f32 {
+key_number_to_hertz :: proc(num: int) -> f32 {
     return 440.0 * math.pow(2.0, (cast(f32)num - 57.0) / 12.0)
 }
+
+Note :: struct {
+    active: bool,
+    phase: f32
+}
+
+notes: [KEY_MAX-KEY_MIN]Note
 
 main :: proc() {
     context.logger = log.create_console_logger(opt = log.Options{.Level})
@@ -48,8 +55,7 @@ main :: proc() {
     rl.UpdateAudioStream(audio_stream, raw_data(audio_buffer[:]), AUDIO_BUFFER_SIZE)
     rl.PlayAudioStream(audio_stream);
 
-    current_key := -1
-    phase: f32 = 0.0
+    hertz: f32 = 0.0
 
     for {
         err := pm.Poll(stream)
@@ -72,12 +78,12 @@ main :: proc() {
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
-                current_key = cast(int)key
+                notes[key - KEY_MIN].active = true
             case KEY_RELEASED:
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
-                current_key = -1
+                notes[key - KEY_MIN].active = false
             case PAD_PRESSED:
                 if key < PAD_MIN || key > PAD_MAX {
                     log.warnf("invalid pad: 0x%X", key)
@@ -93,15 +99,19 @@ main :: proc() {
             }
         }
 
-        log.infof("%v", audio_buffer[122])
-
         if (rl.IsAudioStreamProcessed(audio_stream)) {
-            freq := key_number_to_freq(current_key) if current_key != -1 else 0
-            phase_inc := (cast(f32)freq / cast(f32)SAMPLE_RATE)
-            for i in 0..<AUDIO_BUFFER_SIZE {
-                audio_buffer[i] = math.sin_f32(2.0*math.PI*phase)
-                phase += phase_inc
-                if phase >= 1.0 { phase -= 1.0 }
+            audio_buffer = {}
+            for i in 0..<len(notes) {
+                if !notes[i].active { continue }
+                current_key := cast(int)i + KEY_MIN
+                key_hertz := key_number_to_hertz(current_key)
+                dhertz := (cast(f32)key_hertz / cast(f32)SAMPLE_RATE)
+                for j in 0..<AUDIO_BUFFER_SIZE {
+                    w := 2.0*math.PI*notes[i].phase
+                    audio_buffer[j] += math.sin_f32(w)
+                    notes[i].phase += dhertz
+                    if hertz >= 1.0 { hertz -= 1.0 }
+                }
             }
             rl.UpdateAudioStream(audio_stream, raw_data(audio_buffer[:]), AUDIO_BUFFER_SIZE)
         }
