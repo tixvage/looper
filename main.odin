@@ -74,11 +74,27 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
     sample += synth.triangle_strength * osc(hertz, note.sample_dt, .OSC_TRIANGLE)
 
     total_strength := synth.sine_strength + synth.square_strength + synth.triangle_strength
-
     sample /= total_strength
 
-    note.sample_dt += SAMPLE_STEP
+    dt := note.sample_dt
+    env: f32 = 1.0
+    if dt < synth.attack_time {
+        env = dt / synth.attack_time
+    } else if dt < synth.attack_time + synth.decay_time {
+        t := (dt - synth.attack_time) / synth.decay_time
+        env = 1.0 - (1.0 - synth.sustain_level) * t
+    } else if note.playing {
+        env = synth.sustain_level
+    } else {
+        release_dt := dt - f32(note.finish_time) / SAMPLE_RATE
+        env = synth.sustain_level * (1.0 - release_dt / synth.release_time)
+        if env <= 0.0 {
+            return 0.0
+        }
+    }
+    sample *= env * note.velocity
 
+    note.sample_dt += SAMPLE_STEP
     return sample
 }
 
@@ -250,7 +266,7 @@ main :: proc() {
                     n := &track.notes.data[i]
                     if n.semitone == semitone && n.playing {
                         n.playing = false
-                        n.active = false
+                        n.finish_time = u64(n.sample_dt * SAMPLE_RATE)
                         break
                     }
                 }
