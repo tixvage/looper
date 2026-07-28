@@ -55,9 +55,9 @@ Synthesizer :: struct {
 
 synthesizer_create_default :: proc() -> Synthesizer {
     return {
-        sine_strength = 1.0,
-        square_strength = 0.0,
-        triangle_strength = 0.0,
+        sine_strength = 0.5,
+        square_strength = 0.2,
+        triangle_strength = 0.3,
         attack_time = 0.1,
         decay_time = 0.05,
         sustain_level = 0.7,
@@ -75,9 +75,7 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
 
     total_strength := synth.sine_strength + synth.square_strength + synth.triangle_strength
 
-    if total_strength > 1.0 {
-        sample /= total_strength
-    }
+    sample /= total_strength
 
     note.sample_dt += SAMPLE_STEP
 
@@ -161,10 +159,10 @@ song_create :: proc() -> Song {
 }
 
 song_render :: proc(song: ^Song) {
-    for &it in song.tracks {
-        track_render(&it)
-    }
     if (rl.IsAudioStreamProcessed(song.stream)) {
+        for &it in song.tracks {
+            track_render(&it)
+        }
         for i in 0..<AUDIO_BUFFER_SIZE {
             sample: f32 = 0.0
             for it in song.tracks {
@@ -210,6 +208,7 @@ main :: proc() {
     song := song_create()
     append(&song.tracks, track_create())
     song.tracks[0].instrument = synthesizer_create_default()
+    song.tracks[0].gain = 0.3
 
     for {
         err := pm.Poll(stream)
