@@ -55,10 +55,10 @@ Synthesizer :: struct {
 
 synthesizer_create_default :: proc() -> Synthesizer {
     return {
-        sine_strength = 0.5,
-        square_strength = 0.2,
-        triangle_strength = 0.3,
-        attack_time = 0.1,
+        sine_strength = 1.0,
+        square_strength = 0.03,
+        triangle_strength = 0.2,
+        attack_time = 0.02,
         decay_time = 0.05,
         sustain_level = 0.7,
         release_time = 0.1,
@@ -74,7 +74,9 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
     sample += synth.triangle_strength * osc(hertz, note.sample_dt, .OSC_TRIANGLE)
 
     total_strength := synth.sine_strength + synth.square_strength + synth.triangle_strength
-    sample /= total_strength
+    if total_strength > 1.0 {
+        sample /= total_strength
+    }
 
     dt := note.sample_dt
     env: f32 = 1.0
