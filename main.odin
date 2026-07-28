@@ -91,6 +91,7 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
         release_dt := dt - f32(note.finish_time) / SAMPLE_RATE
         env = synth.sustain_level * (1.0 - release_dt / synth.release_time)
         if env <= 0.0 {
+            note.active = false
             return 0.0
         }
     }
