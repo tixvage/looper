@@ -232,10 +232,28 @@ main :: proc() {
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
-                semitone := key - KEY_MIN
+                semitone := cast(int)(key - KEY_MIN)
+                note := Note{
+                    playing = true,
+                    active = true,
+                    semitone = semitone,
+                    velocity = cast(f32)velocity / 127.0,
+                    sample_dt = 0,
+                }
+                cb_push(&song.tracks[song.active_track_index].notes, note)
             case KEY_RELEASED:
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
+                }
+                semitone := cast(int)(key - KEY_MIN)
+                track := &song.tracks[song.active_track_index]
+                for i in 0..<cb_len(&track.notes) {
+                    n := &track.notes.data[i]
+                    if n.semitone == semitone && n.playing {
+                        n.playing = false
+                        n.active = false
+                        break
+                    }
                 }
             case PAD_PRESSED:
                 if key < PAD_MIN || key > PAD_MAX {
