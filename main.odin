@@ -493,11 +493,34 @@ main :: proc() {
 
         sdl.SetRenderDrawColor(renderer, color_unpack(BACKGROUND_COLOR))
         sdl.RenderClear(renderer)
-        line_offset := cast(i32)(f32(WINDOW_WIDTH - BAR_LINE_OFFSET_START - BAR_LINE_OFFSET_END) / f32(LOOPER_BEATS_PER_BAR))
-        for i in 0..<LOOPER_BEATS_PER_BAR {
+        for i in 0..<i32(len(song.tracks))+1 {
+            sdl.SetRenderDrawColor(renderer, color_unpack(BAR_GRID_COLOR))
+            sdl.RenderFillRect(renderer, &{
+                BAR_LINE_OFFSET_START,
+                BAR_TRACK_OFFSET_START + BAR_TRACK_HEIGHT * i,
+                WINDOW_WIDTH - BAR_LINE_OFFSET_START - BAR_LINE_OFFSET_END,
+                BAR_LINE_WIDTH
+            })
+        }
+        bar_line_offset := cast(i32)(f32(WINDOW_WIDTH - BAR_LINE_OFFSET_START - BAR_LINE_OFFSET_END) / f32(LOOPER_BEATS_PER_BAR))
+        for i in 0..<i32(LOOPER_BEATS_PER_BAR) {
             if i == 0 do sdl.SetRenderDrawColor(renderer, color_unpack(BAR_FIRST_LINE_COLOR))
             else do sdl.SetRenderDrawColor(renderer, color_unpack(BAR_OTHER_LINE_COLOR))
-            sdl.RenderFillRect(renderer, &{i32(i) * line_offset + BAR_LINE_OFFSET_START, 0, BAR_LINE_WIDTH, WINDOW_HEIGHT})
+            sdl.RenderFillRect(renderer, &{
+                i * bar_line_offset + BAR_LINE_OFFSET_START,
+                BAR_LINE_OFFSET_START,
+                BAR_LINE_WIDTH,
+                WINDOW_HEIGHT - BAR_LINE_OFFSET_START - BAR_LINE_OFFSET_END
+            })
+            for j in 1..<i32(BAR_LINE_COUNT) {
+                sdl.SetRenderDrawColor(renderer, color_unpack(BAR_GRID_COLOR))
+                sdl.RenderFillRect(renderer, &{
+                    i * bar_line_offset + j * bar_line_offset / BAR_LINE_COUNT + BAR_LINE_OFFSET_START, 
+                    BAR_LINE_OFFSET_START,
+                    BAR_LINE_WIDTH,
+                    WINDOW_HEIGHT - BAR_LINE_OFFSET_START - BAR_LINE_OFFSET_END
+                })
+            }
         }
         sdl.RenderPresent(renderer)
 
