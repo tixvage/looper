@@ -398,11 +398,14 @@ main :: proc() {
     song := song_create()
     defer ma.device_uninit(&song.device)
 
-    song.looper = looper_create(LOOPER_BPM, LOOPER_BEATS_PER_BAR, 1)
+    song.looper = looper_create(LOOPER_BPM, LOOPER_BEATS_PER_BAR, 2)
     looper_add_note(&song.looper, 0, 0, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 1, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 2, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 3, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 5, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 6, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 6.5, 0, 1.0, 0.25)
 
     append(&song.tracks, track_create())
     song.tracks[0].instrument = sample_create_from_file("tick.wav")
@@ -523,19 +526,25 @@ main :: proc() {
             }
         }
 
+        cursor_beat := f64(song.looper.frame) / f64(song.looper.beat_frames)
+        current_view_bar := u32(cursor_beat / f64(song.looper.beats_per_bar))
+
         for note in song.looper.pattern {
-            x := cast(i32)(f32(BAR_LINE_OFFSET_START) + note.beat * f32(bar_line_offset)) + NOTE_OFFSET
+            if note.beat < f32(current_view_bar * song.looper.beats_per_bar) || note.beat >= f32((current_view_bar + 1) * song.looper.beats_per_bar) {
+                continue
+            }
+            rel_beat := note.beat - f32(current_view_bar * song.looper.beats_per_bar)
+            x := cast(i32)(f32(BAR_LINE_OFFSET_START) + rel_beat * f32(bar_line_offset)) + NOTE_OFFSET
             w := cast(i32)(f32(note.length) * f32(bar_line_offset)) - NOTE_OFFSET * 2
             y := i32(BAR_TRACK_OFFSET_START + BAR_TRACK_HEIGHT * note.track + NOTE_OFFSET)
             h := i32(BAR_TRACK_HEIGHT - 2 * NOTE_OFFSET)
             sdl.SetRenderDrawColor(renderer, color_unpack(NOTE_COLOR))
             sdl.RenderFillRect(renderer, &{x, y, w, h})
         }
-
-        cursor_beat := f64(song.looper.frame) / f64(song.looper.beat_frames)
-        cursor_x := cast(i32)(f32(BAR_LINE_OFFSET_START) + f32(cursor_beat) * f32(bar_line_offset))
+        cursor_in_bar := cursor_beat - f64(current_view_bar * song.looper.beats_per_bar)
+        cursor_x := cast(i32)(f32(BAR_LINE_OFFSET_START) + f32(cursor_in_bar) * f32(bar_line_offset))
         sdl.SetRenderDrawColor(renderer, color_unpack(CURSOR_COLOR))
-        sdl.RenderFillRect(renderer, &{cursor_x, 0, 2, 20})
+        sdl.RenderFillRect(renderer, &{cursor_x, BAR_TRACK_OFFSET_START + BAR_TRACK_HEIGHT / 2 - 10, 2, 20})
 
         sdl.RenderPresent(renderer)
         frame_end := sdl.GetPerformanceCounter()
