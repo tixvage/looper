@@ -323,11 +323,11 @@ main :: proc() {
     defer ma.device_uninit(&song.device)
 
     append(&song.tracks, track_create())
-    song.tracks[0].instrument = synthesizer_create_default()
+    song.tracks[0].instrument = sample_create_from_file("tick.wav")
     song.tracks[0].gain = 0.3
 
     append(&song.tracks, track_create())
-    song.tracks[1].instrument = sample_create_from_file("tick.wav")
+    song.tracks[1].instrument = synthesizer_create_default()
     song.tracks[1].gain = 0.3
     song.active_track_index = 1
 
