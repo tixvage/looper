@@ -399,10 +399,10 @@ main :: proc() {
     defer ma.device_uninit(&song.device)
 
     song.looper = looper_create(LOOPER_BPM, LOOPER_BEATS_PER_BAR, 1)
-    looper_add_note(&song.looper, 0, 0, 0, 1.0, 0)
-    looper_add_note(&song.looper, 0, 1, 0, 1.0, 0)
-    looper_add_note(&song.looper, 0, 2, 0, 1.0, 0)
-    looper_add_note(&song.looper, 0, 3, 0, 1.0, 0)
+    looper_add_note(&song.looper, 0, 0, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 1, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 2, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 3, 0, 1.0, 0.25)
 
     append(&song.tracks, track_create())
     song.tracks[0].instrument = sample_create_from_file("tick.wav")
@@ -522,8 +522,22 @@ main :: proc() {
                 })
             }
         }
-        sdl.RenderPresent(renderer)
 
+        for note in song.looper.pattern {
+            x := cast(i32)(f32(BAR_LINE_OFFSET_START) + note.beat * f32(bar_line_offset)) + NOTE_OFFSET
+            w := cast(i32)(f32(note.length) * f32(bar_line_offset)) - NOTE_OFFSET * 2
+            y := i32(BAR_TRACK_OFFSET_START + BAR_TRACK_HEIGHT * note.track + NOTE_OFFSET)
+            h := i32(BAR_TRACK_HEIGHT - 2 * NOTE_OFFSET)
+            sdl.SetRenderDrawColor(renderer, color_unpack(NOTE_COLOR))
+            sdl.RenderFillRect(renderer, &{x, y, w, h})
+        }
+
+        cursor_beat := f64(song.looper.frame) / f64(song.looper.beat_frames)
+        cursor_x := cast(i32)(f32(BAR_LINE_OFFSET_START) + f32(cursor_beat) * f32(bar_line_offset))
+        sdl.SetRenderDrawColor(renderer, color_unpack(CURSOR_COLOR))
+        sdl.RenderFillRect(renderer, &{cursor_x, 0, 2, 20})
+
+        sdl.RenderPresent(renderer)
         frame_end := sdl.GetPerformanceCounter()
         elapsed_ns := (frame_end - frame_start) * 1_000_000_000 / perf_freq
         if elapsed_ns < frame_ns {
