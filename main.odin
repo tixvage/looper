@@ -6,7 +6,11 @@ import "core:math"
 import pm "vendor:portmidi"
 import rl "vendor:raylib"
 
-AUDIO_BUFFER_SIZE :: 4096
+portmidi_is_error :: proc(err: pm.Error) -> bool {
+    return err != pm.Error.NoError && err != pm.Error.NoData && err != pm.Error.GotData
+}
+
+AUDIO_BUFFER_SIZE :: 1024
 SAMPLE_RATE :: 44100
 SAMPLE_STEP :: 1.0 / cast(f32)SAMPLE_RATE
 
@@ -121,6 +125,7 @@ Note :: struct {
     sample_dt: f32
 }
 
+// max note count that can be active at the same time
 MAX_PLAYING_NOTE_COUNT_PER_TRACK :: 50
 
 Track :: struct {
@@ -196,10 +201,40 @@ song_render :: proc(song: ^Song) {
 
 }
 
+track_note_on :: proc(track: ^Track, semitone: int, velocity: f32) {
+    note := Note{
+        playing = true,
+        active = true,
+        semitone = semitone,
+        velocity = velocity,
+        sample_dt = 0,
+    }
+    cb_push(&track.notes, note)
+}
+
+track_note_off :: proc(track: ^Track, semitone: int) {
+    for i in 0..<cb_len(&track.notes) {
+        n := &track.notes.data[i]
+        if n.semitone == semitone && n.playing {
+            n.playing = false
+            n.finish_time = u64(n.sample_dt * SAMPLE_RATE)
+            break
+        }
+    }
+}
+
+// computer keyboard play keys, ordered by pitch (Z = C3, MIDI 48)
+KEYBOARD_BASE_NOTE :: 48
+KEYBOARD_KEYS :: [?]rl.KeyboardKey{
+    .Z, .S, .X, .D, .C,
+    .V, .G, .B, .H, .N,
+    .J, .M, .COMMA, .L, .PERIOD,
+}
+
 main :: proc() {
     context.logger = log.create_console_logger(opt = log.Options{.Level})
 
-    if err := pm.Initialize(); cast(int)err > 2 {
+    if err := pm.Initialize(); portmidi_is_error(err) {
         log.errorf("%s", pm.GetErrorText(err))
     }
     defer pm.Terminate()
@@ -213,10 +248,12 @@ main :: proc() {
     device_info := pm.GetDeviceInfo(device_id)
     if device_info != nil {
         log.infof("%v", device_info^)
+    } else {
+        log.errorf("device_info is nil")
     }
 
     stream: pm.Stream = nil
-	if err := pm.OpenInput(&stream, device_id, nil, 0, nil, nil); cast(int)err > 2 {
+    if err := pm.OpenInput(&stream, device_id, nil, 0, nil, nil); portmidi_is_error(err) {
         log.errorf("%s", pm.GetErrorText(err))
     }
     defer pm.Close(stream)
@@ -224,12 +261,26 @@ main :: proc() {
     rl.InitAudioDevice()
     defer rl.CloseAudioDevice()
 
+    rl.InitWindow(800, 480, "looper")
+    rl.SetTargetFPS(60)
+    defer rl.CloseWindow()
+
     song := song_create()
     append(&song.tracks, track_create())
     song.tracks[0].instrument = synthesizer_create_default()
     song.tracks[0].gain = 0.3
 
-    for {
+    for !rl.WindowShouldClose() {
+        track := &song.tracks[song.active_track_index]
+        for key, i in KEYBOARD_KEYS {
+            if rl.IsKeyPressed(key) {
+                track_note_on(track, KEYBOARD_BASE_NOTE + i, 1.0)
+            }
+            if rl.IsKeyReleased(key) {
+                track_note_off(track, KEYBOARD_BASE_NOTE + i)
+            }
+        }
+
         err := pm.Poll(stream)
         if cast(int)err > 2 {
             log.errorf("%s", pm.GetErrorText(err))
@@ -251,28 +302,13 @@ main :: proc() {
                     log.warnf("invalid key: 0x%X", key)
                 }
                 semitone := cast(int)(key - KEY_MIN)
-                note := Note{
-                    playing = true,
-                    active = true,
-                    semitone = semitone,
-                    velocity = cast(f32)velocity / 127.0,
-                    sample_dt = 0,
-                }
-                cb_push(&song.tracks[song.active_track_index].notes, note)
+                track_note_on(&song.tracks[song.active_track_index], semitone, cast(f32)velocity / 127.0)
             case KEY_RELEASED:
                 if key < KEY_MIN || key > KEY_MAX {
                     log.warnf("invalid key: 0x%X", key)
                 }
                 semitone := cast(int)(key - KEY_MIN)
-                track := &song.tracks[song.active_track_index]
-                for i in 0..<cb_len(&track.notes) {
-                    n := &track.notes.data[i]
-                    if n.semitone == semitone && n.playing {
-                        n.playing = false
-                        n.finish_time = u64(n.sample_dt * SAMPLE_RATE)
-                        break
-                    }
-                }
+                track_note_off(&song.tracks[song.active_track_index], semitone)
             case PAD_PRESSED:
                 if key < PAD_MIN || key > PAD_MAX {
                     log.warnf("invalid pad: 0x%X", key)
@@ -290,6 +326,9 @@ main :: proc() {
 
         song_render(&song)
 
-        time.sleep(30 * time.Millisecond)
+        rl.BeginDrawing()
+        rl.ClearBackground(rl.GetColor(0x181818))
+        rl.EndDrawing()
+
     }
 }
