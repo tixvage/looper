@@ -37,3 +37,7 @@ load_wav_samples :: proc(path_s: string, allocator := context.allocator) -> []f3
 
     return data[:read]
 }
+
+color_unpack :: proc(hex: u32) -> (u8, u8, u8, u8) {
+    return u8(hex >> 24 & 0xFF), u8(hex >> 16 & 0xFF), u8(hex >> 8 & 0xFF), u8(hex >> 0 & 0xFF)
+}
