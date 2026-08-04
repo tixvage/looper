@@ -6,14 +6,6 @@ import "core:math"
 import pm "vendor:portmidi"
 import rl "vendor:raylib"
 
-portmidi_is_error :: proc(err: pm.Error) -> bool {
-    return err != pm.Error.NoError && err != pm.Error.NoData && err != pm.Error.GotData
-}
-
-AUDIO_BUFFER_SIZE :: 1024
-SAMPLE_RATE :: 44100
-SAMPLE_STEP :: 1.0 / cast(f32)SAMPLE_RATE
-
 // assumed C0 -> 0
 key_number_to_hertz :: proc(num: int) -> f32 {
     return 440.0 * math.pow(2.0, (cast(f32)num - 57.0) / 12.0)
@@ -221,14 +213,6 @@ track_note_off :: proc(track: ^Track, semitone: int) {
             break
         }
     }
-}
-
-// computer keyboard play keys, ordered by pitch (Z = C3, MIDI 48)
-KEYBOARD_BASE_NOTE :: 48
-KEYBOARD_KEYS :: [?]rl.KeyboardKey{
-    .Z, .S, .X, .D, .C,
-    .V, .G, .B, .H, .N,
-    .J, .M, .COMMA, .L, .PERIOD,
 }
 
 main :: proc() {
