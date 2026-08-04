@@ -370,7 +370,7 @@ main :: proc() {
             }
         }
 
-        sdl.SetRenderDrawColor(renderer, 0x18, 0x18, 0x18, 0xFF)
+        sdl.SetRenderDrawColor(renderer, 0x0A, 0x18, 0x18, 0xFF)
         sdl.RenderClear(renderer)
         sdl.RenderPresent(renderer)
 
