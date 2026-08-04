@@ -484,6 +484,13 @@ main :: proc() {
                     song.looper.recording = !song.looper.recording
                     continue
                 }
+                if event.key.keysym.sym >= sdl.Keycode.NUM0 && event.key.keysym.sym <= sdl.Keycode.NUM9 {
+                    track_index := int(event.key.keysym.sym) - int(sdl.Keycode.NUM0)
+                    if track_index < len(song.tracks) {
+                        song.active_track_index = uint(track_index)
+                    }
+                    continue
+                }
                 for key, i in KEYBOARD_KEYS {
                     if event.key.keysym.sym == key {
                         song_note_on(song, KEYBOARD_BASE_NOTE + i, 1.0)
