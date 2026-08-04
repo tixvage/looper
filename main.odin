@@ -56,7 +56,7 @@ synthesizer_create_default :: proc() -> Synthesizer {
         sine_strength = 1.0,
         square_strength = 0.03,
         triangle_strength = 0.2,
-        attack_time = 0.02,
+        attack_time = 0.01,
         decay_time = 0.05,
         sustain_level = 0.7,
         release_time = 0.1,
@@ -99,12 +99,35 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
     return sample
 }
 
+// not to be confused with actual audio sample, this 'Sample' refers to an asset, a pre-recorded audio file that gets loaded into the memory
+Sample :: struct {
+    data: []f32,
+}
+
+sample_create_from_file :: proc(path: string) -> Sample {
+    return {
+        data = load_wav_samples(path)
+    }
+}
+
+// ...
+sample_sample :: proc(sample: Sample, note: ^Note) -> f32 {
+    i := int(note.sample_dt * SAMPLE_RATE)
+    if i >= len(sample.data) {
+        note.active = false
+        return 0.0
+    }
+    note.sample_dt += SAMPLE_STEP
+    return sample.data[i] * note.velocity
+}
+
 
 Null_Instrument :: struct {}
 
 Instrument :: union {
     Null_Instrument,
     Synthesizer,
+    Sample,
 }
 
 Note :: struct {
@@ -151,6 +174,16 @@ track_render :: proc(track: ^Track) {
                 sample += synthesizer_sample(inst, n)
             }
 
+            track.buffer[i] = sample
+        }
+    case Sample:
+        for i in 0..<AUDIO_BUFFER_SIZE {
+            sample: f32 = 0.0
+            for j in 0..<cb_len(&track.notes) {
+                n := &track.notes.data[j]
+                if !n.active { continue }
+                sample += sample_sample(inst, n)
+            }
             track.buffer[i] = sample
         }
     case Null_Instrument:
@@ -288,9 +321,15 @@ main :: proc() {
 
     song := song_create()
     defer ma.device_uninit(&song.device)
+
     append(&song.tracks, track_create())
     song.tracks[0].instrument = synthesizer_create_default()
     song.tracks[0].gain = 0.3
+
+    append(&song.tracks, track_create())
+    song.tracks[1].instrument = sample_create_from_file("tick.wav")
+    song.tracks[1].gain = 0.3
+    song.active_track_index = 1
 
     frame_ns: u64 = 1_000_000_000 / FPS
     perf_freq := sdl.GetPerformanceFrequency()
