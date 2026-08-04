@@ -78,6 +78,10 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
 
     dt := note.sample_dt
     env: f32 = 1.0
+    if note.duration > 0.0 && dt >= note.duration && note.playing {
+        note.playing = false
+        note.finish_time = u64(dt * SAMPLE_RATE)
+    }
     if dt < synth.attack_time {
         env = dt / synth.attack_time
     } else if dt < synth.attack_time + synth.decay_time {
@@ -139,7 +143,8 @@ Note :: struct {
     velocity: f32,
     start_time: u64,
     finish_time: u64,
-    sample_dt: f32
+    sample_dt: f32,
+    duration: f32
 }
 
 // max note count that can be active at the same time
@@ -195,6 +200,7 @@ song_render :: proc(song: ^Song) {
         track_render(&it)
     }
     for i in 0..<AUDIO_BUFFER_SIZE {
+        looper_step(song)
         sample: f32 = 0.0
         for it in song.tracks {
             sample += it.buffer[i] * it.gain
@@ -204,12 +210,81 @@ song_render :: proc(song: ^Song) {
     }
 }
 
+Looper_Note :: struct {
+    track: int,
+    beat: f32,
+    semitone: int,
+    velocity: f32,
+    length: f32
+}
+
+Looper :: struct {
+    bpm: u32,
+    beats_per_bar: u32,
+    bars: u32,
+    pattern: [dynamic]Looper_Note,
+    frame: u64,
+    beat_frames: u64,
+    cursor: int
+}
+
+looper_create :: proc(bpm: u32, beats_per_bar: u32, bars: u32) -> Looper {
+    return {
+        bpm = bpm,
+        beats_per_bar = beats_per_bar,
+        bars = bars,
+        beat_frames = u64(60.0 / f64(bpm) * f64(SAMPLE_RATE)),
+    }
+}
+
+looper_add_note :: proc(l: ^Looper, track: int, beat: f32, semitone: int, velocity: f32, length: f32) {
+    note: Looper_Note = {
+        track = track,
+        beat = beat,
+        semitone = semitone,
+        velocity = velocity,
+        length = length
+    }
+    i := 0
+    for i < len(l.pattern) && l.pattern[i].beat <= beat {
+        i += 1
+    }
+    inject_at(&l.pattern, i, note)
+}
+
+looper_step :: proc(song: ^Song) {
+    l := &song.looper
+    loop_frames := f64(u64(l.bars) * u64(l.beats_per_bar) * l.beat_frames)
+    beat_seconds := 60.0 / f64(l.bpm)
+
+    cur := f64(l.frame)
+    for l.cursor < len(l.pattern) {
+        note_frame := f64(l.pattern[l.cursor].beat) * f64(l.beat_frames)
+        if note_frame > cur {
+            break
+        }
+        note := &l.pattern[l.cursor]
+        if note.track < len(song.tracks) {
+            duration := f32(f64(note.length) * beat_seconds)
+            track_note_on(&song.tracks[note.track], note.semitone, note.velocity, duration)
+        }
+        l.cursor += 1
+    }
+
+    l.frame += 1
+    if f64(l.frame) >= loop_frames {
+        l.frame = 0
+        l.cursor = 0
+    }
+}
+
 Song :: struct {
     tracks: [dynamic]Track,
     active_track_index: uint,
     device: ma.device,
     buffer: [AUDIO_BUFFER_SIZE]f32,
     render_frame_offset: u32,
+    looper: Looper,
 }
 
 song_create :: proc() -> ^Song {
@@ -253,13 +328,14 @@ audio_data_callback :: proc "c" (pDevice: ^ma.device, pOutput, pInput: rawptr, f
     song.render_frame_offset = cast(u32)offset
 }
 
-track_note_on :: proc(track: ^Track, semitone: int, velocity: f32) {
+track_note_on :: proc(track: ^Track, semitone: int, velocity: f32, duration: f32) {
     note := Note{
         playing = true,
         active = true,
         semitone = semitone,
         velocity = velocity,
         sample_dt = 0,
+        duration = duration,
     }
     cb_push(&track.notes, note)
 }
@@ -322,6 +398,13 @@ main :: proc() {
     song := song_create()
     defer ma.device_uninit(&song.device)
 
+    song.looper = looper_create(LOOPER_BPM, LOOPER_BEATS_PER_BAR, LOOPER_BARS)
+    looper_add_note(&song.looper, 0, 0, 0, 1.0, 0)
+    looper_add_note(&song.looper, 0, 1, 0, 1.0, 0)
+    looper_add_note(&song.looper, 0, 2, 0, 1.0, 0)
+    looper_add_note(&song.looper, 0, 3, 0, 1.0, 0)
+    looper_add_note(&song.looper, 1, 3, 24, 1.0, 1)
+
     append(&song.tracks, track_create())
     song.tracks[0].instrument = sample_create_from_file("tick.wav")
     song.tracks[0].gain = 0.3
@@ -350,7 +433,7 @@ main :: proc() {
                 }
                 for key, i in KEYBOARD_KEYS {
                     if event.key.keysym.sym == key {
-                        track_note_on(track, KEYBOARD_BASE_NOTE + i, 1.0)
+                        track_note_on(track, KEYBOARD_BASE_NOTE + i, 1.0, 0)
                         break
                     }
                 }
@@ -386,7 +469,7 @@ main :: proc() {
                         log.warnf("invalid key: 0x%X", key)
                     }
                     semitone := cast(int)(key - KEY_MIN)
-                    track_note_on(&song.tracks[song.active_track_index], semitone, cast(f32)velocity / 127.0)
+                    track_note_on(&song.tracks[song.active_track_index], semitone, cast(f32)velocity / 127.0, 0)
                 case KEY_RELEASED:
                     if key < KEY_MIN || key > KEY_MAX {
                         log.warnf("invalid key: 0x%X", key)
