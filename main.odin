@@ -26,14 +26,36 @@ Osc_Type :: enum {
     OSC_NOISE
 }
 
+poly_blep :: proc(t: f32, dt: f32) -> f32 {
+    if t < dt {
+        t := t / dt
+        return 2.0 * t - t * t - 1.0
+    } else if t > 1.0 - dt {
+        t := (t - 1.0) / dt
+        return t * t + 2.0 * t + 1.0
+    }
+    return 0.0
+}
+
 osc :: proc(hertz: f32, dt: f32, type: Osc_Type) -> f32 {
+    phase_inc := hertz * SAMPLE_STEP
+    phase: f32 = math.mod(hertz * dt, 1.0)
+
     #partial switch type {
     case .OSC_SINE:
         return math.sin_f32(w(hertz) * dt)
     case .OSC_SQUARE:
-        return 1.0 if math.sin_f32(w(hertz) * dt) > 0.0 else -1.0
+        naive: f32 = 1.0 if phase < 0.5 else -1.0
+        blep_up := poly_blep(phase, phase_inc)
+        shifted := math.mod_f32(phase + 0.5, 1.0)
+        blep_down := poly_blep(shifted, phase_inc)
+        return naive + blep_up - blep_down
     case .OSC_TRIANGLE:
         return math.asin_f32(math.sin_f32(w(hertz) * dt)) * (2.0 / math.PI)
+    case .OSC_SAW_ANA:
+        naive := 2.0 * phase - 1.0
+        raw := naive - poly_blep(phase, phase_inc)
+        return math.tanh(raw * 0.7) * 1.15
     case:
         return 0.0
     }
@@ -44,6 +66,7 @@ Synthesizer :: struct {
     sine_strength: f32,
     square_strength: f32,
     triangle_strength: f32,
+    saw_ana_strength: f32,
     // envelope
     attack_time: f32,
     decay_time: f32,
@@ -53,9 +76,10 @@ Synthesizer :: struct {
 
 synthesizer_create_default :: proc() -> Synthesizer {
     return {
-        sine_strength = 1.0,
-        square_strength = 0.03,
-        triangle_strength = 0.2,
+        sine_strength = 0.25,
+        square_strength = 0.0,
+        triangle_strength = 0.55,
+        saw_ana_strength = 0.35,
         attack_time = 0.01,
         decay_time = 0.05,
         sustain_level = 0.7,
@@ -70,8 +94,9 @@ synthesizer_sample :: proc(synth: Synthesizer, note: ^Note) -> f32 {
     sample += synth.sine_strength * osc(hertz, note.sample_dt, .OSC_SINE)
     sample += synth.square_strength * osc(hertz, note.sample_dt, .OSC_SQUARE)
     sample += synth.triangle_strength * osc(hertz, note.sample_dt, .OSC_TRIANGLE)
+    sample += synth.saw_ana_strength * osc(hertz, note.sample_dt, .OSC_SAW_ANA)
 
-    total_strength := synth.sine_strength + synth.square_strength + synth.triangle_strength
+    total_strength := synth.sine_strength + synth.square_strength + synth.triangle_strength + synth.saw_ana_strength
     if total_strength > 1.0 {
         sample /= total_strength
     }
@@ -451,9 +476,10 @@ main :: proc() {
     looper_add_note(&song.looper, 0, 1, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 2, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 3, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 4, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 5, 0, 1.0, 0.25)
     looper_add_note(&song.looper, 0, 6, 0, 1.0, 0.25)
-    looper_add_note(&song.looper, 0, 6.5, 0, 1.0, 0.25)
+    looper_add_note(&song.looper, 0, 7, 0, 1.0, 0.25)
 
     append(&song.tracks, track_create())
     song.tracks[0].instrument = sample_create_from_file("tick.wav")
