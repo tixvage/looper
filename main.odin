@@ -3,8 +3,10 @@ package main
 import "core:log"
 import "core:time"
 import "core:math"
+import "base:runtime"
 import pm "vendor:portmidi"
-import rl "vendor:raylib"
+import ma "vendor:miniaudio"
+import sdl "vendor:sdl2"
 
 // assumed C0 -> 0
 key_number_to_hertz :: proc(num: int) -> f32 {
@@ -155,42 +157,67 @@ track_render :: proc(track: ^Track) {
     }
 }
 
+song_render :: proc(song: ^Song) {
+    for &it in song.tracks {
+        track_render(&it)
+    }
+    for i in 0..<AUDIO_BUFFER_SIZE {
+        sample: f32 = 0.0
+        for it in song.tracks {
+            sample += it.buffer[i] * it.gain
+        }
+
+        song.buffer[i] = sample
+    }
+}
+
 Song :: struct {
     tracks: [dynamic]Track,
     active_track_index: uint,
+    device: ma.device,
     buffer: [AUDIO_BUFFER_SIZE]f32,
-    stream: rl.AudioStream,
+    render_frame_offset: u32,
 }
 
-song_create :: proc() -> Song {
-    rl.SetAudioStreamBufferSizeDefault(AUDIO_BUFFER_SIZE);
-    stream := rl.LoadAudioStream(SAMPLE_RATE, 32, 1);
-    rl.PlayAudioStream(stream);
-    return {
-        tracks = make([dynamic]Track),
-        active_track_index = 0,
-        buffer = {},
-        stream = stream,
+song_create :: proc() -> ^Song {
+    song := new(Song)
+    song.tracks = make([dynamic]Track)
+    song.active_track_index = 0
+
+    config := ma.device_config_init(ma.device_type.playback)
+    config.sampleRate = SAMPLE_RATE
+    config.playback.format = ma.format.f32
+    config.playback.channels = 1
+    config.periodSizeInFrames = AUDIO_BUFFER_SIZE
+    config.dataCallback = audio_data_callback
+    config.pUserData = song
+
+    if result := ma.device_init(nil, &config, &song.device); result != .SUCCESS {
+        log.errorf("failed to init audio device: %v", result)
     }
+    if result := ma.device_start(&song.device); result != .SUCCESS {
+        log.errorf("failed to start audio device: %v", result)
+    }
+    return song
 }
 
-song_render :: proc(song: ^Song) {
-    if (rl.IsAudioStreamProcessed(song.stream)) {
-        for &it in song.tracks {
-            track_render(&it)
-        }
-        for i in 0..<AUDIO_BUFFER_SIZE {
-            sample: f32 = 0.0
-            for it in song.tracks {
-                sample += it.buffer[i] * it.gain
-            }
+audio_data_callback :: proc "c" (pDevice: ^ma.device, pOutput, pInput: rawptr, frameCount: u32) {
+    context = runtime.default_context()
+    song := cast(^Song)pDevice.pUserData
+    out := cast([^]f32)pOutput
 
-            song.buffer[i] = sample
+    offset := song.render_frame_offset
+    for i in 0..<cast(int)frameCount {
+        if offset == 0 {
+            song_render(song)
         }
-
-        rl.UpdateAudioStream(song.stream, raw_data(song.buffer[:]), AUDIO_BUFFER_SIZE)
+        out[i] = song.buffer[offset]
+        offset += 1
+        if offset == AUDIO_BUFFER_SIZE {
+            offset = 0
+        }
     }
-
+    song.render_frame_offset = cast(u32)offset
 }
 
 track_note_on :: proc(track: ^Track, semitone: int, velocity: f32) {
@@ -242,26 +269,59 @@ main :: proc() {
     }
     defer pm.Close(stream)
 
-    rl.InitAudioDevice()
-    defer rl.CloseAudioDevice()
+    if sdl.Init(sdl.INIT_VIDEO) != 0 {
+        log.errorf("failed to init sdl: %s", sdl.GetError())
+    }
+    defer sdl.Quit()
 
-    rl.InitWindow(800, 480, "looper")
-    rl.SetTargetFPS(60)
-    defer rl.CloseWindow()
+    window := sdl.CreateWindow("looper", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 800, 480, sdl.WINDOW_SHOWN)
+    if window == nil {
+        log.errorf("failed to create window: %s", sdl.GetError())
+    }
+    defer sdl.DestroyWindow(window)
+
+    renderer := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    if renderer == nil {
+        log.errorf("failed to create renderer: %s", sdl.GetError())
+    }
+    defer sdl.DestroyRenderer(renderer)
 
     song := song_create()
+    defer ma.device_uninit(&song.device)
     append(&song.tracks, track_create())
     song.tracks[0].instrument = synthesizer_create_default()
     song.tracks[0].gain = 0.3
 
-    for !rl.WindowShouldClose() {
+    frame_ns: u64 = 1_000_000_000 / FPS
+    perf_freq := sdl.GetPerformanceFrequency()
+
+    running := true
+    for running {
+        frame_start := sdl.GetPerformanceCounter()
         track := &song.tracks[song.active_track_index]
-        for key, i in KEYBOARD_KEYS {
-            if rl.IsKeyPressed(key) {
-                track_note_on(track, KEYBOARD_BASE_NOTE + i, 1.0)
-            }
-            if rl.IsKeyReleased(key) {
-                track_note_off(track, KEYBOARD_BASE_NOTE + i)
+
+        event: sdl.Event
+        for sdl.PollEvent(&event) {
+            #partial switch event.type {
+            case .QUIT:
+                running = false
+            case .KEYDOWN:
+                if event.key.repeat != 0 {
+                    continue
+                }
+                for key, i in KEYBOARD_KEYS {
+                    if event.key.keysym.sym == key {
+                        track_note_on(track, KEYBOARD_BASE_NOTE + i, 1.0)
+                        break
+                    }
+                }
+            case .KEYUP:
+                for key, i in KEYBOARD_KEYS {
+                    if event.key.keysym.sym == key {
+                        track_note_off(track, KEYBOARD_BASE_NOTE + i)
+                        break
+                    }
+                }
             }
         }
 
@@ -310,11 +370,14 @@ main :: proc() {
             }
         }
 
-        song_render(&song)
+        sdl.SetRenderDrawColor(renderer, 0x18, 0x18, 0x18, 0xFF)
+        sdl.RenderClear(renderer)
+        sdl.RenderPresent(renderer)
 
-        rl.BeginDrawing()
-        rl.ClearBackground(rl.GetColor(0x181818))
-        rl.EndDrawing()
-
+        frame_end := sdl.GetPerformanceCounter()
+        elapsed_ns := (frame_end - frame_start) * 1_000_000_000 / perf_freq
+        if elapsed_ns < frame_ns {
+            sdl.Delay(u32((frame_ns - elapsed_ns) / 1_000_000))
+        }
     }
 }

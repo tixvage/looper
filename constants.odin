@@ -1,15 +1,18 @@
 package main
 
-import rl "vendor:raylib"
+import sdl "vendor:sdl2"
 
 // audio engine
 AUDIO_BUFFER_SIZE :: 1024
 SAMPLE_RATE :: 44100
 SAMPLE_STEP :: 1.0 / cast(f32)SAMPLE_RATE
 
+// window
+FPS :: 60
+
 // keyboard
 KEYBOARD_BASE_NOTE :: 48
-KEYBOARD_KEYS :: [?]rl.KeyboardKey{
+KEYBOARD_KEYS :: [?]sdl.Keycode{
     .Z, .S, .X, .D, .C,
     .V, .G, .B, .H, .N,
     .J, .M, .COMMA, .L, .PERIOD,
