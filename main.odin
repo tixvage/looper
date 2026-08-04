@@ -265,46 +265,48 @@ main :: proc() {
             }
         }
 
-        err := pm.Poll(stream)
-        if cast(int)err > 2 {
-            log.errorf("%s", pm.GetErrorText(err))
-            break
-        }
-        buffer_size :: 10
-        event_buffer: [buffer_size]pm.Event
-        pm.Read(stream, raw_data(event_buffer[:]), buffer_size)
-
-        for e in event_buffer {
-            if e.timestamp == 0 {
-                continue
+        if stream != nil {
+            err := pm.Poll(stream)
+            if portmidi_is_error(err) {
+                log.errorf("%s", pm.GetErrorText(err))
+                break
             }
-            event, key, velocity := pm.MessageStatus(e.message), pm.MessageData1(e.message), pm.MessageData2(e.message)
+            buffer_size :: 10
+            event_buffer: [buffer_size]pm.Event
+            pm.Read(stream, raw_data(event_buffer[:]), buffer_size)
 
-            switch event {
-            case KEY_PRESSED:
-                if key < KEY_MIN || key > KEY_MAX {
-                    log.warnf("invalid key: 0x%X", key)
+            for e in event_buffer {
+                if e.timestamp == 0 {
+                    continue
                 }
-                semitone := cast(int)(key - KEY_MIN)
-                track_note_on(&song.tracks[song.active_track_index], semitone, cast(f32)velocity / 127.0)
-            case KEY_RELEASED:
-                if key < KEY_MIN || key > KEY_MAX {
-                    log.warnf("invalid key: 0x%X", key)
+                event, key, velocity := pm.MessageStatus(e.message), pm.MessageData1(e.message), pm.MessageData2(e.message)
+
+                switch event {
+                case KEY_PRESSED:
+                    if key < KEY_MIN || key > KEY_MAX {
+                        log.warnf("invalid key: 0x%X", key)
+                    }
+                    semitone := cast(int)(key - KEY_MIN)
+                    track_note_on(&song.tracks[song.active_track_index], semitone, cast(f32)velocity / 127.0)
+                case KEY_RELEASED:
+                    if key < KEY_MIN || key > KEY_MAX {
+                        log.warnf("invalid key: 0x%X", key)
+                    }
+                    semitone := cast(int)(key - KEY_MIN)
+                    track_note_off(&song.tracks[song.active_track_index], semitone)
+                case PAD_PRESSED:
+                    if key < PAD_MIN || key > PAD_MAX {
+                        log.warnf("invalid pad: 0x%X", key)
+                    }
+                case PAD_RELEASED:
+                    if key < PAD_MIN || key > PAD_MAX {
+                        log.warnf("invalid pad: 0x%X", key)
+                    }
+                case KNOB_MODIFIED:
+                    log.warnf("todo: knobs")
+                case:
+                    log.warnf("unhandled event: 0x%X", event)
                 }
-                semitone := cast(int)(key - KEY_MIN)
-                track_note_off(&song.tracks[song.active_track_index], semitone)
-            case PAD_PRESSED:
-                if key < PAD_MIN || key > PAD_MAX {
-                    log.warnf("invalid pad: 0x%X", key)
-                }
-            case PAD_RELEASED:
-                if key < PAD_MIN || key > PAD_MAX {
-                    log.warnf("invalid pad: 0x%X", key)
-                }
-            case KNOB_MODIFIED:
-                log.warnf("todo: knobs")
-            case:
-                log.warnf("unhandled event: 0x%X", event)
             }
         }
 
