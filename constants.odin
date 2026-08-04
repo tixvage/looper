@@ -9,6 +9,8 @@ SAMPLE_STEP :: 1.0 / cast(f32)SAMPLE_RATE
 
 // window
 FPS :: 60
+WINDOW_WIDTH :: 1200
+WINDOW_HEIGHT :: 720
 
 // keyboard
 KEYBOARD_BASE_NOTE :: 48

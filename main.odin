@@ -274,7 +274,7 @@ main :: proc() {
     }
     defer sdl.Quit()
 
-    window := sdl.CreateWindow("looper", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 800, 480, sdl.WINDOW_SHOWN)
+    window := sdl.CreateWindow("looper", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, sdl.WINDOW_SHOWN)
     if window == nil {
         log.errorf("failed to create window: %s", sdl.GetError())
     }
