@@ -2,8 +2,10 @@ package main
 
 import "core:log"
 import "core:strings"
+import "core:math"
 import pm "vendor:portmidi"
 import ma "vendor:miniaudio"
+import sdl "vendor:sdl2"
 
 portmidi_is_error :: proc(err: pm.Error) -> bool {
     return err != pm.Error.NoError && err != pm.Error.NoData && err != pm.Error.GotData
@@ -40,4 +42,12 @@ load_wav_samples :: proc(path_s: string, allocator := context.allocator) -> []f3
 
 color_unpack :: proc(hex: u32) -> (u8, u8, u8, u8) {
     return u8(hex >> 24 & 0xFF), u8(hex >> 16 & 0xFF), u8(hex >> 8 & 0xFF), u8(hex >> 0 & 0xFF)
+}
+
+
+draw_filled_circle :: proc(renderer: ^sdl.Renderer, center_x, center_y, radius: i32) {
+    for y in -radius..=radius {
+        half_width := i32(math.sqrt_f32(f32(radius * radius - y * y)))
+        sdl.RenderDrawLine(renderer, center_x - half_width, center_y + y, center_x + half_width, center_y + y)
+    }
 }

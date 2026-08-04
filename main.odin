@@ -218,6 +218,14 @@ Looper_Note :: struct {
     length: f32
 }
 
+Recording_Note :: struct {
+    active: bool,
+    track: int,
+    beat: f32,
+    velocity: f32,
+    started_at: u32
+}
+
 Looper :: struct {
     bpm: u32,
     beats_per_bar: u32,
@@ -225,7 +233,9 @@ Looper :: struct {
     pattern: [dynamic]Looper_Note,
     frame: u64,
     beat_frames: u64,
-    cursor: int
+    cursor: int,
+    recording: bool,
+    recording_notes: [128]Recording_Note
 }
 
 looper_create :: proc(bpm: u32, beats_per_bar: u32, bars: u32) -> Looper {
@@ -243,13 +253,17 @@ looper_add_note :: proc(l: ^Looper, track: int, beat: f32, semitone: int, veloci
         beat = beat,
         semitone = semitone,
         velocity = velocity,
-        length = length
+        length = length,
     }
     i := 0
     for i < len(l.pattern) && l.pattern[i].beat <= beat {
         i += 1
     }
     inject_at(&l.pattern, i, note)
+    note_was_passed := l.frame > 0 && u64(beat * f32(l.beat_frames)) <= l.frame
+    if i < l.cursor || (i == l.cursor && note_was_passed) {
+        l.cursor += 1
+    }
 }
 
 looper_step :: proc(song: ^Song) {
@@ -285,6 +299,41 @@ Song :: struct {
     buffer: [AUDIO_BUFFER_SIZE]f32,
     render_frame_offset: u32,
     looper: Looper,
+}
+
+looper_quantized_beat :: proc(l: ^Looper) -> f32 {
+    beat := f32(l.frame) / f32(l.beat_frames)
+    loop_beats := f32(l.bars * l.beats_per_bar)
+    return math.mod_f32(math.round_f32(beat / RECORD_QUANTIZATION) * RECORD_QUANTIZATION, loop_beats)
+}
+
+song_note_on :: proc(song: ^Song, semitone: int, velocity: f32) {
+    track_index := int(song.active_track_index)
+    track_note_on(&song.tracks[track_index], semitone, velocity, 0)
+    if song.looper.recording && semitone >= 0 && semitone < 128 {
+        song.looper.recording_notes[semitone] = {
+            active = true,
+            track = track_index,
+            beat = looper_quantized_beat(&song.looper),
+            velocity = velocity,
+            started_at = sdl.GetTicks(),
+        }
+    }
+}
+
+song_note_off :: proc(song: ^Song, semitone: int) {
+    track_note_off(&song.tracks[song.active_track_index], semitone)
+    if semitone >= 0 && semitone < 128 {
+        recorded := &song.looper.recording_notes[semitone]
+        if recorded.active {
+            held_beats := f32(sdl.GetTicks() - recorded.started_at) * f32(song.looper.bpm) / 60_000.0
+            length := max(RECORD_NOTE_LENGTH, math.round_f32(held_beats / RECORD_QUANTIZATION) * RECORD_QUANTIZATION)
+            loop_beats := f32(song.looper.bars * song.looper.beats_per_bar)
+            length = min(length, loop_beats - recorded.beat)
+            looper_add_note(&song.looper, recorded.track, recorded.beat, semitone, recorded.velocity, length)
+            recorded.active = false
+        }
+    }
 }
 
 song_create :: proc() -> ^Song {
@@ -346,7 +395,6 @@ track_note_off :: proc(track: ^Track, semitone: int) {
         if n.semitone == semitone && n.playing {
             n.playing = false
             n.finish_time = u64(n.sample_dt * SAMPLE_RATE)
-            break
         }
     }
 }
@@ -422,7 +470,6 @@ main :: proc() {
     running := true
     for running {
         frame_start := sdl.GetPerformanceCounter()
-        track := &song.tracks[song.active_track_index]
 
         event: sdl.Event
         for sdl.PollEvent(&event) {
@@ -433,16 +480,20 @@ main :: proc() {
                 if event.key.repeat != 0 {
                     continue
                 }
+                if event.key.keysym.sym == sdl.Keycode.R {
+                    song.looper.recording = !song.looper.recording
+                    continue
+                }
                 for key, i in KEYBOARD_KEYS {
                     if event.key.keysym.sym == key {
-                        track_note_on(track, KEYBOARD_BASE_NOTE + i, 1.0, 0)
+                        song_note_on(song, KEYBOARD_BASE_NOTE + i, 1.0)
                         break
                     }
                 }
             case .KEYUP:
                 for key, i in KEYBOARD_KEYS {
                     if event.key.keysym.sym == key {
-                        track_note_off(track, KEYBOARD_BASE_NOTE + i)
+                        song_note_off(song, KEYBOARD_BASE_NOTE + i)
                         break
                     }
                 }
@@ -471,13 +522,13 @@ main :: proc() {
                         log.warnf("invalid key: 0x%X", key)
                     }
                     semitone := cast(int)(key - KEY_MIN)
-                    track_note_on(&song.tracks[song.active_track_index], semitone, cast(f32)velocity / 127.0, 0)
+                    song_note_on(song, semitone, cast(f32)velocity / 127.0)
                 case KEY_RELEASED:
                     if key < KEY_MIN || key > KEY_MAX {
                         log.warnf("invalid key: 0x%X", key)
                     }
                     semitone := cast(int)(key - KEY_MIN)
-                    track_note_off(&song.tracks[song.active_track_index], semitone)
+                    song_note_off(song, semitone)
                 case PAD_PRESSED:
                     if key < PAD_MIN || key > PAD_MAX {
                         log.warnf("invalid pad: 0x%X", key)
@@ -545,6 +596,16 @@ main :: proc() {
         cursor_x := cast(i32)(f32(BAR_LINE_OFFSET_START) + f32(cursor_in_bar) * f32(bar_line_offset))
         sdl.SetRenderDrawColor(renderer, color_unpack(CURSOR_COLOR))
         sdl.RenderFillRect(renderer, &{cursor_x, BAR_TRACK_OFFSET_START + BAR_TRACK_HEIGHT / 2 - 10, 2, 20})
+
+        if song.looper.recording && (sdl.GetTicks() / RECORD_BLINK_MS) % 2 == 0 {
+            sdl.SetRenderDrawColor(renderer, color_unpack(RECORD_COLOR))
+            draw_filled_circle(
+                renderer,
+                WINDOW_WIDTH - RECORD_INDICATOR_MARGIN - RECORD_INDICATOR_RADIUS,
+                WINDOW_HEIGHT - RECORD_INDICATOR_MARGIN - RECORD_INDICATOR_RADIUS,
+                RECORD_INDICATOR_RADIUS,
+            )
+        }
 
         sdl.RenderPresent(renderer)
         frame_end := sdl.GetPerformanceCounter()
